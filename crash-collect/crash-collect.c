@@ -6,17 +6,21 @@
  */
 
 #include "crash-collect.h"
+#include "errno.h"
 
 // max number of directories can monitor
 #define DIR_QUEUE_LEN 5
+#define IPQ_SERIP "10.10.10.7"
+#define IPLEN 16
+#define DEBUG 1
 
 // IPQ server config. currently configured for local host
-#define SERVER_IPQ_PORT   49999
 #define QBLK_SIZE         1024
-#define LOG_TIMESTAMP     "/data/logTimeStamp"
 #define INIT_BYTES        8
 #define SBUFF_LEN         50
-#define RECONNECT_SLEEP_TIMER    10
+#define CONNECT_SLEEP_TIMER    200
+#define RECONNECT_SLEEP_TIMER    2
+#define RECONNECT_RETRY_COUNT    5
 
 struct monitor_dir {
 	int fwd;
@@ -29,24 +33,59 @@ struct message{
 	char file_name_buff[50];
 };
 
+struct sockaddr_in ipq_server_addr;
 struct monitor_dir monitor_dir_in[5];
+struct message last_msg;
+static int server_fd;
 char qtstamp_buff[50] = {'\0'};
 FILE *pfd = NULL;
 
+//Handling SIGPIPE received while sending notification to IPQ
+void sigp_handle(int sig) {
+	printf("SIGPIPE received\n");
+}
+
 //send msg to IPQ server with ACK
-int logMsgSend(int server_fd, struct message msg, int msgLen) {
+int logMsgSend(struct message msg, int msgLen) {
 	struct stat qfile;
-	int fd, ret;
-	char ipqAck[10];
-	if(send(server_fd, &msg, msgLen, 0) == -1) {
-		perror("send");
-		return -1;
+	int fd, ret, ipq_retry_count=0;
+
+	printf("Debug mode enable\n");
+	printf("sending data to ipq\n");
+	if(send(server_fd, &msg, msgLen, 0) == -1){
+		perror("send: disconnected ");
+		//return -1;
+RECONNECT_IPQ:
+		close(server_fd);
+		server_fd = socket(AF_INET, SOCK_STREAM, 0);
+	        if(server_fd == -1) {
+        	        perror("socket :");
+                	exit(EXIT_FAILURE);
+        	}
+
+	        printf("connecting to server\n");
+        	ipq_retry_count = 0;
+	        int ret = connect(server_fd, (struct sockaddr*)&ipq_server_addr, sizeof(ipq_server_addr));
+        	while(ret == -1) {
+                	sleep(RECONNECT_SLEEP_TIMER);
+                	printf("connecting to server...%d\n", ipq_retry_count);
+                	ret = connect(server_fd, (struct sockaddr*)&ipq_server_addr, sizeof(ipq_server_addr));
+                	ipq_retry_count++;
+        	}
+		if(&last_msg.file_name_buff != NULL)
+			if(send(server_fd, &last_msg, msgLen, 0) == -1)
+				goto RECONNECT_IPQ;
+		if(send(server_fd, &msg, msgLen, 0) == -1)
+			goto RECONNECT_IPQ;
 	}
-	int ackSize = recv(server_fd, ipqAck, sizeof(ipqAck), 0);
-	if(ackSize == -1) {
-		perror("recv");
-		return -1;
-	} else {
+#ifdef DEBUG
+	printf("file notified to IPQ:%s\n",msg.file_name_buff);
+#endif
+	memset(&last_msg, 0, sizeof(last_msg));
+	strlcpy(&last_msg.file_name_buff, &msg.file_name_buff, strlen(msg.file_name_buff));
+	last_msg.type = msg.type;
+
+
 		int len = strlen(msg.file_name_buff);
 		msg.file_name_buff[len-1] = '\0';
 		//printf("len :%d file:%s\n ", len, msg.file_name_buff);
@@ -70,11 +109,7 @@ int logMsgSend(int server_fd, struct message msg, int msgLen) {
 			return -1;
 		}
 		fflush(pfd);
-		printf("fripntf return :%d\n", ret);
 		memset(qtstamp_buff, 0, sizeof(qtstamp_buff));
-	}
-	ipqAck[ackSize] = '\0';
-	printf("IPQ Ack received : %s ack len : %ld\n", ipqAck, strlen(ipqAck));
 	return 0;
 }
 
@@ -106,7 +141,7 @@ int read_rawdump(int server_fd){
 		lseek(raw_partfd, 0, SEEK_SET);
                 snprintf(msg_buff.file_name_buff, sizeof(msg_buff.file_name_buff), "%s",PATH_FULL_DUMP);
                 msg_buff.type = 3;
-		logMsgSend(server_fd, msg_buff, sizeof(msg_buff));
+		logMsgSend(msg_buff, sizeof(msg_buff));
 	} else {
 		printf("raw partition is empty\n");
 	}
@@ -114,12 +149,12 @@ int read_rawdump(int server_fd){
         return 0;
 }
 
-int notify_full_crash(int server_fd, const char *dir_sdcard) {
+int notify_full_crash(const char *dir_sdcard) {
 	struct message dir_buff;
 	struct dirent *entry;
 
 	int emmc_flag = system("cat /sys/kernel/dload/emmc_dload");
-	if(emmc_flag != 1) {
+	if(emmc_flag == 1) {
 		read_rawdump(server_fd);
 	} else {
 		DIR *dir = opendir(dir_sdcard);
@@ -139,7 +174,7 @@ int notify_full_crash(int server_fd, const char *dir_sdcard) {
 				memset(&dir_buff, 0, sizeof(dir_buff));
 				snprintf(dir_buff.file_name_buff, sizeof(dir_buff.file_name_buff), "%s%s",dir_sdcard, entry->d_name);
 				dir_buff.type = 3;
-				int ret = logMsgSend(server_fd, dir_buff, sizeof(dir_buff));
+				int ret = logMsgSend(dir_buff, sizeof(dir_buff));
 			}
 		}
 	}
@@ -174,14 +209,13 @@ const char* getipq_serversocket(void) {
                 printf("getifaddrs call failed\n");
                 return NULL;
         }
-        const char *mhi_int = "rmnet_mhi0";
         struct ifaddrs *address = if_list;
 
         while(address != NULL)
         {
                 if(address->ifa_addr != NULL)
 			family = address->ifa_addr->sa_family;
-                if (family == AF_INET && strcmp(address->ifa_name,mhi_int) == 0)
+                if (family == AF_INET && strcmp(address->ifa_name, MHISW_INTFC) == 0)
                 {
                         getnameinfo(address->ifa_addr,family_size, ipq_serip, sizeof(ipq_serip), 0, 0, NI_NUMERICHOST);
                         break;
@@ -195,7 +229,8 @@ const char* getipq_serversocket(void) {
         return strdup(ipq_serip);
 }
 
-int main(void)
+/* Pass first argument as server address to connect with crash-collect */
+int main(int argc, char *argv[])
 {
 	int i, fd, wd,len;
 	struct stat qfile;
@@ -204,34 +239,32 @@ int main(void)
 	struct message sdx_msg;
 	int ipq_connect_count = 0;
 
+	/* Handling SIGPIPE single received from send() call */
+	signal(SIGPIPE, sigp_handle);
+
 	pfd = fopen(LOG_TIMESTAMP, "a+");
 	if (pfd == NULL){
 		perror("fopen");
 		return -1;
 	}
 
-	// checking interface ip address
-	const char* ipq_server_ip = getipq_serversocket();
-	while(ipq_server_ip == NULL) {
-		printf("interface not available\n");
-		sleep(RECONNECT_SLEEP_TIMER);
-		ipq_server_ip = getipq_serversocket();
-		ipq_connect_count++;
-		if(ipq_connect_count == 5){
-			printf("interface not available\n");
-			exit(EXIT_SUCCESS);
-		}
+	/* connecting to ipq server ip */
+	char* ipq_server_ip = (char *)malloc(24);
+	if(argc > 1) {
+		strlcpy(ipq_server_ip, argv[1], IPLEN);
+	} else {
+		strlcpy(ipq_server_ip, IPQ_SERIP, IPLEN);
 	}
-
+#ifdef DEBUG
+	printf("argc:%d ipq_server_ip:%s\n", argc, ipq_server_ip);
 	printf("ipq server address : %s\n", ipq_server_ip);
+#endif
 
 	// IPQ server config
 	int ipq_server_port = SERVER_IPQ_PORT;
-	int ipq_server_fd;
-	struct sockaddr_in ipq_server_addr;
 
-	ipq_server_fd = socket(AF_INET, SOCK_STREAM, 0);
-	if(ipq_server_fd == -1) {
+	server_fd = socket(AF_INET, SOCK_STREAM, 0);
+	if(server_fd == -1) {
 		perror("socket :");
 		exit(EXIT_FAILURE);
 	}
@@ -239,11 +272,20 @@ int main(void)
 	ipq_server_addr.sin_port = htons(ipq_server_port);
 	inet_pton(AF_INET, ipq_server_ip, &ipq_server_addr.sin_addr);
 
-	int ret = connect(ipq_server_fd, (struct sockaddr*)&ipq_server_addr, sizeof(ipq_server_addr));
-	if(ret == -1) {
-		perror("connect :");
-		exit(EXIT_FAILURE);
-	}
+	printf("connecting to server\n");
+	ipq_connect_count = 0;
+	int ret = connect(server_fd, (struct sockaddr*)&ipq_server_addr, sizeof(ipq_server_addr));
+	while(ret == -1) {
+                usleep(CONNECT_SLEEP_TIMER);
+                printf("connecting to server...%d\n", ipq_connect_count);
+		        ret = connect(server_fd, (struct sockaddr*)&ipq_server_addr, sizeof(ipq_server_addr));
+                ipq_connect_count++;
+		if(ipq_connect_count >= RECONNECT_RETRY_COUNT){
+			perror("connect:");
+			exit(EXIT_FAILURE);
+		}
+        }
+	printf("connected to server\n");
 
 	fd = inotify_init();
 	if (fd == -1) {
@@ -253,20 +295,25 @@ int main(void)
 
 	// check if data/crash bin files present after full crash(emmc/sd card)
 	// if present, send to IPQ
-	notify_full_crash(ipq_server_fd, PATH_FULL_DUMP_SD);
+	notify_full_crash(PATH_FULL_DUMP_SD);
 
-	int fwd1 = inotify_add_watch(fd, PATH_SSR_DUMP, IN_ACCESS | IN_CLOSE_WRITE|IN_CLOSE);
-	printf("file %s, fd : %d\n",PATH_SSR_DUMP, fwd1);
+	int fwd1 = inotify_add_watch(fd, PATH_SSR_DUMP, IN_ACCESS|IN_CLOSE_WRITE|IN_CLOSE);
 	if (fwd1 == -1) {
 		perror("inotify_add_watch fwd1 :");
+		exit(EXIT_FAILURE);
 	}
+#ifdef DEBUG
+	printf("file %s, fd : %d\n",PATH_SSR_DUMP, fwd1);
+#endif
 	monitor_dir_in[0].fwd = fwd1;
 	monitor_dir_in[0].file_type = 1;
 	strlcpy(monitor_dir_in[0].dir, PATH_SSR_DUMP, sizeof(PATH_SSR_DUMP));
 
 	while (1) {
 		len = read(fd, buff, CBUFF_LEN);
+#ifdef DEBUG
 		printf("checking events : %d\n", len);
+#endif
 		if (len == -1) {
 			perror("read");
 			return -1;
@@ -274,29 +321,23 @@ int main(void)
 		i = 0;
 		while (i < len) {
 			struct inotify_event *ssr_event = (struct inotify_event *)&buff[i];
+#ifdef DEBUG
 			printf("File : %s %ld len:%d i:%d\n", ssr_event->name, strlen(ssr_event->name), len, i);
+#endif
 			if (strlen(ssr_event->name) <= 1) {
 				i += CRASH_EVENT_SIZE + ssr_event->len ;
 				continue ;
 			}
 			const char *dir_name = getDir(ssr_event->wd);
 			int logFileType = qLogfileType(ssr_event->wd);
+#ifdef DEBUG
 			printf("type %d File : %s%s ",logFileType, dir_name, ssr_event->name);
-
-			if (ssr_event->mask & IN_CREATE)
-				printf(" IN_CREATE");
-
-			if (ssr_event->mask & IN_CLOSE_WRITE)
-				printf(" IN_CLOSE_WRITE");
-
-			if (ssr_event->mask & IN_CLOSE)
-				printf(" IN_CLOSE");
-
 			printf("%s%s\n", dir_name, ssr_event->name);
+#endif
 			memset(&sdx_msg, 0, sizeof(sdx_msg));
 			snprintf(sdx_msg.file_name_buff, sizeof(sdx_msg.file_name_buff), "%s%s ", dir_name, ssr_event->name);
 			sdx_msg.type = logFileType;
-			int ret = logMsgSend(ipq_server_fd, sdx_msg, sizeof(sdx_msg));
+			int ret = logMsgSend(sdx_msg, sizeof(sdx_msg));
 
 			i += CRASH_EVENT_SIZE + ssr_event->len ;
 		}

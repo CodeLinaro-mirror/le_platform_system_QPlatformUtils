@@ -29,12 +29,18 @@
 #define CRASH_EVENT_SIZE (sizeof(struct inotify_event))
 #define CBUFF_LEN (1024* (CRASH_EVENT_SIZE+16))
 
-#define FLAG_EMMC "/sys/kernel/dload/emmc_dload"
-
+#define MHISW_INTFC "mhi_swip0"
+#define SERVER_IPQ_PORT 49999
+#define LOG_TIMESTAMP "/data/logTimeStamp"
+#define FLAG_EMMC     "/sys/kernel/dload/emmc_dload"
 #define PATH_SSR_DUMP "/data/ramdump/"
-
 #define PATH_FULL_DUMP "/dev/block/bootdevice/by-name/rawdump"
-
 #define PATH_FULL_DUMP_SD "/mnt/sdcard/ram_dump"
+
+enum DUMP_TYPE {
+        LOG_FILE = 0,
+        SSR_DUMP,
+        FULL_CRASH_DUMP
+};
 
 #endif
