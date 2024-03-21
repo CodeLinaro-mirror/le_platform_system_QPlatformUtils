@@ -4,10 +4,16 @@
 # ---------------------------------------------------------------------------
 
 [Unit]
-Description=crash-collect service to transfer ssr and full crash dump
+Description=crash-collect service to notify ssr and full crash dump
+BindsTo=basic.target
+After=sockets.target basic.target
 
 [Service]
-Restart=always
+Restart=on-failure
+ExecStartPre=/bin/sleep 20
+ExecStartPre=ifconfig mhi_swip0 10.10.10.3 up
+ExecStartPre=ifconfig mhi_swip0
+ExecStartPre=/bin/sh -c 'ip neighbor show dev mhi_swip0 | grep -q 10.10.10.7 || ip neigh add 10.10.10.7 lladdr 70:71:aa:4b:29:77 nud permanent dev mhi_swip0'
 ExecStart=/sbin/crashcollect
 
 [Install]
