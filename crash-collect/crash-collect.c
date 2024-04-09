@@ -30,7 +30,7 @@ struct monitor_dir {
 
 struct message{
 	int type;
-	char file_name_buff[50];
+	char file_name_buff[100];
 };
 
 int status = 0;
