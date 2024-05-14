@@ -30,9 +30,10 @@ struct monitor_dir {
 
 struct message{
 	int type;
-	char file_name_buff[50];
+	char file_name_buff[100];
 };
 
+int status = 0;
 struct sockaddr_in ipq_server_addr;
 struct monitor_dir monitor_dir_in[5];
 struct message last_msg;
@@ -49,12 +50,24 @@ void sigp_handle(int sig) {
 int logMsgSend(struct message msg, int msgLen) {
 	struct stat qfile;
 	int fd, ret, ipq_retry_count=0;
+	int len_cur = 0, len_last = 0;
+
+	int len = strlen(msg.file_name_buff);
+	msg.file_name_buff[len-1] = '\0';
+
+	len_cur = strlen(msg.file_name_buff);
+	len_last = strlen(last_msg.file_name_buff);
 
 	printf("Debug mode enable\n");
 	printf("sending data to ipq\n");
+	if((status == 1) && strcmp(&last_msg.file_name_buff, &msg.file_name_buff)== 0){
+		printf("File already notified : Duplicate event\n");
+		return 0;
+	}
 	if(send(server_fd, &msg, msgLen, 0) == -1){
 		perror("send: disconnected ");
 		//return -1;
+		status = 0;
 RECONNECT_IPQ:
 		close(server_fd);
 		server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -72,23 +85,26 @@ RECONNECT_IPQ:
                 	ret = connect(server_fd, (struct sockaddr*)&ipq_server_addr, sizeof(ipq_server_addr));
                 	ipq_retry_count++;
         	}
+		if((ret != -1) && strcmp(last_msg.file_name_buff, msg.file_name_buff)== 0){
+			printf("File already notified\n");
+			return 0;
+		}
 		if(&last_msg.file_name_buff != NULL)
-			if(send(server_fd, &last_msg, msgLen, 0) == -1)
+			if(send(server_fd, &last_msg, msgLen, 0) == -1){
 				goto RECONNECT_IPQ;
+			}
 		if(send(server_fd, &msg, msgLen, 0) == -1)
 			goto RECONNECT_IPQ;
 	}
 #ifdef DEBUG
 	printf("file notified to IPQ:%s\n",msg.file_name_buff);
 #endif
+
+	status = 1;
 	memset(&last_msg, 0, sizeof(last_msg));
-	strlcpy(&last_msg.file_name_buff, &msg.file_name_buff, strlen(msg.file_name_buff));
+	strlcpy(&last_msg.file_name_buff, &msg.file_name_buff, strlen(msg.file_name_buff)+1);
 	last_msg.type = msg.type;
 
-
-		int len = strlen(msg.file_name_buff);
-		msg.file_name_buff[len-1] = '\0';
-		//printf("len :%d file:%s\n ", len, msg.file_name_buff);
 		fd = open(msg.file_name_buff, O_RDONLY);
 		if (fd == -1) {
 			perror("open");
@@ -297,7 +313,7 @@ int main(int argc, char *argv[])
 	// if present, send to IPQ
 	notify_full_crash(PATH_FULL_DUMP_SD);
 
-	int fwd1 = inotify_add_watch(fd, PATH_SSR_DUMP, IN_ACCESS|IN_CLOSE_WRITE|IN_CLOSE);
+	int fwd1 = inotify_add_watch(fd, PATH_SSR_DUMP, IN_CLOSE_WRITE|IN_CLOSE);
 	if (fwd1 == -1) {
 		perror("inotify_add_watch fwd1 :");
 		exit(EXIT_FAILURE);

@@ -2,7 +2,7 @@ ACLOCAL_AMFLAGS = -I m4
 AM_CPPFLAGS  = $(GLIB_CFLAGS) -include glib.h -Dstrlcpy=g_strlcpy -Dstrlcat=g_strlcat
 
 # Build crash-collect bin utility
-root_sbindir           = "/sbin"
+root_sbindir           = "/usr/sbin"
 root_sbin_PROGRAMS     = crashcollect
 crashcollect_CC = @CC@
 crashcollect_SOURCES  = crash-collect.c
