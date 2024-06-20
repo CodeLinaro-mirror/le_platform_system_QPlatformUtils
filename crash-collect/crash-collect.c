@@ -126,6 +126,7 @@ RECONNECT_IPQ:
 		}
 		fflush(pfd);
 		memset(qtstamp_buff, 0, sizeof(qtstamp_buff));
+		close(fd);
 	return 0;
 }
 
