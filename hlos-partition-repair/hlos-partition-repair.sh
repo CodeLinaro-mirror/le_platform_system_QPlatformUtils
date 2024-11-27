@@ -42,6 +42,7 @@ restore_persist() {
         # Restore existing data
         restore -rf /persist_bkp/persist.dump
         echo "restore complete with exit code $0"
+        sync
     fi
 }
 
@@ -57,16 +58,25 @@ repair_hlos_part() {
 
     # create new file-system for vfat
     if [ "$1" = "manifest_a" -o "$1" = "manifest_b" ]; then
-         echo "It's vfat $part_name"
-         mkfs.vfat $part_name
-         if [[ $? -eq 0 ]]; then
-             reboot_flag=1
-             echo "Repaired $1"
-             return
+         echo "Repairing vfat $part_name"
+         fsck.vfat -pw $part_name
+         status=$?
+         if [[ $status -eq 0 ]]; then
+            echo "$1 has been clean"
+            reboot_flag=1
+            return
          else
-             echo "Fail to repair $1"
-             exit_flag=1
-             return
+            echo "Fail to repair $1, Creating new FS"
+            mkfs.vfat $part_name
+            if [[ $? -eq 0 ]]; then
+                reboot_flag=1
+                echo "Created new FS $1"
+                return
+            else
+                echo "Fail to create FS $1"
+                exit_flag=1
+                return
+            fi
          fi
     fi
 

@@ -22,6 +22,7 @@ then
            dump -0f /persist_bkp/persist.dump /dev/block/bootdevice/by-name/persist > /dev/null 2>&1
            umount /persist_bkp
            echo "persist backup finished"
+           exit 0
        else
            echo "persist_bkp mount fail"
            exit 1
