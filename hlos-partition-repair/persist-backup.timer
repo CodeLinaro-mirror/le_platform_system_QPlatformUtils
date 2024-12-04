@@ -1,0 +1,17 @@
+# ---------------------------------------------------------------------------
+# Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+# ---------------------------------------------------------------------------
+
+[Unit]
+Description=Run persist-backup service every 10 minutes.
+After=persist.mount
+
+[Timer]
+OnCalendar=*:0/10
+Unit=persist-backup.service
+
+
+[Install]
+WantedBy=timers.target
+

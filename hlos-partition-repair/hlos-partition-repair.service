@@ -1,0 +1,20 @@
+# ---------------------------------------------------------------------------
+# Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+# ---------------------------------------------------------------------------
+
+[Unit]
+Description=partition-recovery service to recover common partitions in case of header corruption.
+ConditionKernelCommandLine=|androidboot.fstab_suffix=emmc
+After=cache.mount local-fs.target
+DefaultDependencies=no
+
+[Service]
+Restart=on-failure
+ExecStart=/etc/hlos-partition-repair.sh
+StandardOutput=journal+console
+
+
+[Install]
+WantedBy=local-fs.target
+
