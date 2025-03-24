@@ -1,0 +1,18 @@
+# ---------------------------------------------------------------------------
+# Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+# ---------------------------------------------------------------------------
+
+[Unit]
+Description=Log collection at shutdown
+DefaultDependencies=no
+Before=halt.target poweroff.target reboot.target umount.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sh -c 'echo "Starting logs collection now ..."'
+ExecStart=/usr/sbin/collect-logs /etc/shutdown-logs.conf
+RemainAfterExit=yes
+
+[Install]
+WantedBy=halt.target poweroff.target reboot.target
