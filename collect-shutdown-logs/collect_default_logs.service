@@ -7,7 +7,7 @@
 Description=Default log collection at shutdown
 DefaultDependencies=no
 Before=halt.target poweroff.target reboot.target umount.target
-After=transceiver_fault_management.service
+After=transceiver_fault_management.service collect_shutdown_logs.service
 
 [Service]
 Type=oneshot
