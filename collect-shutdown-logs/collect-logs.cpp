@@ -282,10 +282,21 @@ int main(int argc , char* argv[])
 	//get current timestamp to be appended to all logs while saving
 	auto now = chrono::system_clock::now();
 	time_t now_c = chrono::system_clock::to_time_t(now);
-	tm now_tm = *localtime(&now_c);
+	tm* now_tm = localtime(&now_c);
 	ostringstream oss;
-    oss << put_time(&now_tm, "%y%m%d%H%M%S");
-    string ts = oss.str();
+
+	if (now_tm == nullptr)
+	{
+		LOGE("Locatime returned null. Saving logs without timestamp.");
+		oss << "00";
+	}
+	else
+	{
+		tm now_tm_copy = *now_tm;
+		oss << put_time(&now_tm_copy, "%y%m%d%H%M%S");
+	}
+
+	string ts = oss.str();
 	LOGD("Saving shutdown logs with timestamp: "<<ts);
 
     if (argc==2)
