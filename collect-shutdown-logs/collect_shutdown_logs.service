@@ -1,0 +1,22 @@
+# ---------------------------------------------------------------------------
+# Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+# ---------------------------------------------------------------------------
+
+[Unit]
+Description=Log collection at shutdown
+DefaultDependencies=no
+Before=halt.target poweroff.target reboot.target umount.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sh -c 'echo "Starting logs collection now ..."'
+ExecStartPre=/bin/sh -c '[ -d /data/mplane/o-ran-filesystem/o-ran/log/ ] &&  \
+/bin/chmod -R 775 /data/mplane/o-ran-filesystem/o-ran/log/ &&  \
+/bin/chown -R radio:root /data/mplane/o-ran-filesystem/o-ran/log/ ||  \
+echo "Path doesnt exist, skipping chmod/chown" '
+ExecStart=/usr/sbin/collect-logs /etc/shutdown-logs.conf
+RemainAfterExit=yes
+
+[Install]
+WantedBy=halt.target poweroff.target reboot.target
