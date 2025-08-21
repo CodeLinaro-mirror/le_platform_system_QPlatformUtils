@@ -17,9 +17,15 @@ SPDX-License-Identifier: BSD-3-Clause-Clear
 #include <cstring> // For strerror
 #include <cerrno>  // For errno
 #include <stdexcept> //exception
+#include <dirent.h>
+#include <archive.h>
+#include <archive_entry.h>
+#include <vector>
+#include <filesystem>
 
 
 using namespace std;
+namespace fs = std::filesystem;
 
 #define LOGD(message) (std::cout << "[collect-logs] D: " << message << std::endl)
 #define LOGE(message) (std::cout << "[collect-logs] E: " << __func__ << "  " << message <<"  :  "<< std::strerror(errno) << std::endl)
@@ -39,14 +45,9 @@ bool destPathAvailable(const std::string& path)
 	return (stat(path.c_str(),&info) == 0 && (info.st_mode & S_IFDIR));
 }
 
-bool logExists(const std::string& path) {
-    struct stat buffer;
-    return (stat(path.c_str(), &buffer) == 0);
-}
-
-bool createBackupPath() {
+bool createDir(const char* dir) {
     mode_t mode = 0755; // Permissions: rwx r-x r-x
-    return (mkdir(BACKUP_DEST_DIR, mode) == 0);
+    return (mkdir(dir, mode) == 0);
 }
 
 const char* zlibErrorCodeStr(int ret_code)
@@ -194,25 +195,113 @@ int8_t saveCompressedLogs(const string &src, const string &dst)
      return 0;
  }
 
+int SaveCompressedFolder(const string& folder_path, const string& zip_path) {
+    struct archive* archive = archive_write_new();
+    if (!archive) {
+        LOGE("Failed to create archive object");
+        return 1;
+    }
 
+    if (archive_write_set_format_zip(archive) != ARCHIVE_OK) {
+        LOGE("Failed to set ZIP format");
+        archive_write_free(archive);
+        return 2;
+    }
 
-int8_t removeFile(const string &file)
+    if (archive_write_open_filename(archive, zip_path.c_str()) != ARCHIVE_OK) {
+        LOGE("Failed to open ZIP file");
+        archive_write_free(archive);
+        return 3;
+    }
+
+    for (const auto& entry : fs::directory_iterator(folder_path)) {
+
+        ifstream file(entry.path(), ios::binary);
+        if (!file) {
+            LOGE("Failed to open file: " << entry.path());
+            continue;
+        }
+
+        vector<char> buffer((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
+
+        struct archive_entry* archive_entry = archive_entry_new();
+
+        archive_entry_set_pathname(archive_entry, entry.path().filename().string().c_str());
+        archive_entry_set_size(archive_entry, buffer.size());
+        archive_entry_set_filetype(archive_entry, AE_IFREG);
+        archive_entry_set_perm(archive_entry, 0644);
+
+        if (archive_write_header(archive, archive_entry) != ARCHIVE_OK) {
+            LOGE("Failed to write header for: " << entry.path());
+            archive_entry_free(archive_entry);
+            continue;
+        }
+
+        if (archive_write_data(archive, buffer.data(), buffer.size()) < 0) {
+            LOGE("Failed to write data for: " << entry.path());
+            archive_entry_free(archive_entry);
+            continue;
+        }
+
+        archive_entry_free(archive_entry);
+    }
+
+    if (archive_write_close(archive) != ARCHIVE_OK) {
+        LOGE("Failed to close archive");
+        archive_write_free(archive);
+        return 4;
+    }
+
+    archive_write_free(archive);
+    return 0;
+}
+
+int8_t removeFile(const string &path)
  {
      try
      {
-         if(!logExists(file))
-         {
-             return 0;
-         }
+        struct stat buffer;
+        if (lstat(path.c_str(), &buffer) != 0) {
+            return 0;
+        }
 
+        if (S_ISDIR(buffer.st_mode))
+        {
+            DIR* dir = opendir(path.c_str());
+            if (!dir)
+            {
+                LOGE("opendir failed: " << path);
+                return -1;
+            }
+
+            struct dirent* ent;
+            while ((ent = readdir(dir)) != nullptr) {
+                const char* name = ent->d_name;
+                if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+                    continue;
+                }
+
+                string file = path + '/' + name;
+
+                if(remove(file.c_str()) == 0)
+                {
+                    LOGD("removed compressed log file: " << file);
+                }
+                else
+                {
+                    LOGE("failed to remove file " << file);
+                }
+            }
+            closedir(dir);
+        }
          // Remove tmp copy of file
-         if(remove(file.c_str()) == 0)
+         if(remove(path.c_str()) == 0)
          {
-             LOGD("removed log file: "<< file);
+             LOGD("removed log file: "<< path);
          }
          else
          {
-             LOGE("failed to remove file " << file);
+             LOGE("failed to remove file " << path);
              return -1;
          }
      }
@@ -271,7 +360,7 @@ int main(int argc , char* argv[])
         if (!destPathAvailable(dest_dir))
         {
             LOGD(" Creating backup path now: "<< BACKUP_DEST_DIR);
-		    if(!createBackupPath())
+		    if(!createDir(BACKUP_DEST_DIR))
 		    {
 			    LOGE("Unable to create log path: "<< BACKUP_DEST_DIR << " . Logs will not be saved !! .");
 			    return -1;
@@ -298,6 +387,13 @@ int main(int argc , char* argv[])
 
 	string ts = oss.str();
 	LOGD("Saving shutdown logs with timestamp: "<<ts);
+
+    dest_dir += ts;
+
+    if(!createDir(dest_dir.c_str())) {
+		LOGE("Unable to create log path: "<< dest_dir << " . Logs will not be saved !! .");
+		return -1;
+	}
 
     if (argc==2)
     {
@@ -330,14 +426,14 @@ int main(int argc , char* argv[])
 
             if (i == 2) {
                 const std::string inputwords[2] = {temp[0], temp[1]};
-                if ( saveCompressedLogs(inputwords[0], dest_dir+inputwords[1]+"_"+ts+".gz") !=0)
+                if ( saveCompressedLogs(inputwords[0], dest_dir+'/'+inputwords[1]+".gz") !=0)
                 {
                     LOGE("Compression failed for :  "<< inputwords[0]);
-                    removeFile(dest_dir+inputwords[1]+"_"+ts+".gz");
+                    removeFile(dest_dir+'/'+inputwords[1]+".gz");
                 }
                 else
                 {
-                    LOGD(" Saved logs "<<inputwords[0] << "  at "<<dest_dir+inputwords[1]+"_"+ts+".gz");
+                    LOGD(" Saved logs "<<inputwords[0] << "  at "<<dest_dir+'/'+inputwords[1]+".gz");
                 }
             } else {
                 LOGE("Incorrect input line : " << line );
@@ -351,25 +447,36 @@ int main(int argc , char* argv[])
         //Save default logs - dmesg, journalctl
         for(int i=0;i<2;i++)
         {
-            if ( executeCmdSaveLogs((dest_dir+commands[i]+".txt").c_str(),(commands[i]).c_str()) !=0)
+            if ( executeCmdSaveLogs((dest_dir+'/'+commands[i]+".txt").c_str(),(commands[i]).c_str()) !=0)
             {
                 LOGE("Failed to collect logs "<< commands[i]);
-                removeFile(dest_dir+commands[i]+".txt");
+                removeFile(dest_dir+'/'+commands[i]+".txt");
             }
             else
             {
-                if ( saveCompressedLogs(dest_dir+commands[i]+".txt", dest_dir+commands[i]+"_"+ts+".gz") !=0)
+                if ( saveCompressedLogs(dest_dir+'/'+commands[i]+".txt", dest_dir+'/'+commands[i]+".gz") !=0)
                     {
-                        LOGE("Compression failed for :  "<< dest_dir+commands[i]+".txt");
-                        removeFile(dest_dir+commands[i]+"_"+ts+".gz");
+                        LOGE("Compression failed for :  "<< dest_dir+'/'+commands[i]+".txt");
+                        removeFile(dest_dir+'/'+commands[i]+".gz");
                     }
                     else
                     {
-                        LOGD(" Saved logs " << "  at "<<dest_dir+commands[i]+"_"+ts+".gz");
-                        removeFile(dest_dir+commands[i]+".txt");
+                        LOGD(" Saved logs " << "  at "<<dest_dir+'/'+commands[i]+".gz");
+                        removeFile(dest_dir+'/'+commands[i]+".txt");
                     }   
             }
         }
+    }
+
+    if ( SaveCompressedFolder(dest_dir, dest_dir+".zip") !=0)
+    {
+        LOGE("Compression failed for :  "<< dest_dir);
+        removeFile(dest_dir+".zip");
+    }
+    else
+    {
+        LOGD(" Saved logs " << "  at "<<dest_dir+".zip");
+        removeFile(dest_dir);
     }
 	return ret;
 }
