@@ -33,7 +33,7 @@
 #define SERVER_IPQ_PORT 49999
 #define LOG_TIMESTAMP "/data/logTimeStamp"
 #define FLAG_EMMC     "/sys/kernel/dload/emmc_dload"
-#define PATH_SSR_DUMP "/data/ramdump/"
+#define PATH_SSR_DUMP "/data/vendor/ramdump/"
 #define PATH_FULL_DUMP "/dev/block/bootdevice/by-name/rawdump"
 #define PATH_FULL_DUMP_SD "/mnt/sdcard/ram_dump"
 

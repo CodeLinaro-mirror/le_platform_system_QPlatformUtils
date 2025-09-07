@@ -264,7 +264,6 @@ int main(int argc, char *argv[])
 		perror("fopen");
 		return -1;
 	}
-
 	/* connecting to ipq server ip */
 	char* ipq_server_ip = (char *)malloc(24);
 	if(argc > 1) {
@@ -314,7 +313,7 @@ int main(int argc, char *argv[])
 	// if present, send to IPQ
 	notify_full_crash(PATH_FULL_DUMP_SD);
 
-	int fwd1 = inotify_add_watch(fd, PATH_SSR_DUMP, IN_CLOSE_WRITE|IN_CLOSE);
+	int fwd1 = inotify_add_watch(fd, PATH_SSR_DUMP, IN_CLOSE_WRITE);
 	if (fwd1 == -1) {
 		perror("inotify_add_watch fwd1 :");
 		exit(EXIT_FAILURE);
@@ -337,6 +336,7 @@ int main(int argc, char *argv[])
 		}
 		i = 0;
 		while (i < len) {
+
 			struct inotify_event *ssr_event = (struct inotify_event *)&buff[i];
 #ifdef DEBUG
 			printf("File : %s %ld len:%d i:%d\n", ssr_event->name, strlen(ssr_event->name), len, i);
