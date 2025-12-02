@@ -12,7 +12,7 @@
 #include <iostream>
 #define FM_CONF_FILE "/etc/process_monitor-cinder.json"
 #define LOCAL_FS_TARGET "local-fs.target"
-#define WAIT_TIME 60
+#define WAIT_TIME 20
 #include <ctime>
 #include <sstream>
 #include <iomanip>
@@ -160,8 +160,6 @@ int main() {
         LOGW("No services configured to monitor. Exiting...");
         return 0;
     }
-
-    sleep(WAIT_TIME);
 
     SystemMngrInit::SystemMngrInit manager;
     std::vector<ServiceStatus> statusList;
