@@ -8,29 +8,27 @@
 #include <fstream>
 #include <unistd.h>
 #include <json/json.h>
-#include <chrono>
 #include <iostream>
 #define FM_CONF_FILE "/etc/process_monitor-cinder.json"
 #define LOCAL_FS_TARGET "local-fs.target"
 #define WAIT_TIME 20
-#include <ctime>
-#include <sstream>
-#include <iomanip>
 #include <unordered_map>
-
+#include <time.h>
+#include <cstdint>
 
 uint64_t getDeviceTime() {
-    auto now = std::chrono::system_clock::now();
-    std::time_t currentTime = std::chrono::system_clock::to_time_t(now);
-    std::tm localTimeData;
-    std::tm* localTime = localtime_r(&currentTime, &localTimeData);
+    struct timespec ts;
+    uint64_t event_time;
 
-    // Format: HHMMSS as integer
-    uint64_t formattedTime = localTime->tm_hour * 10000 +
-                             localTime->tm_min * 100 +
-                             localTime->tm_sec;
+    // Returns Unix epoch time in milliseconds
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        LOGE_ERRNO("Failed to get system time, using default timestamp.");
+        return 0;
+    }
 
-    return formattedTime;
+    event_time = static_cast<uint64_t>(ts.tv_sec) * 1000ULL + static_cast<uint64_t>(ts.tv_nsec) / 1000000ULL;
+
+    return event_time;
 }
 
 
