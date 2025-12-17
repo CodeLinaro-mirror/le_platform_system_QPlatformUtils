@@ -136,10 +136,11 @@ for partition in $(cat $config_file); do
 done
 
 # Reboot device in case of any common hlos partition recovered/repaired.
-if [ $reboot_flag -eq 1 -a exit_flag -eq 0 ]; then
+if [ $reboot_flag -eq 1 -a $exit_flag -eq 0 ]; then
     echo "Reboot required "
-    /sbin/sys_reboot
+    /sbin/reboot
 else
+    echo "Reboot not required"
     exit $exit_flag
 fi
 
