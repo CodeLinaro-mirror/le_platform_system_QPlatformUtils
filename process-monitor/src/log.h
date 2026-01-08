@@ -5,6 +5,7 @@
 #define _LOG_H_
 #include <iostream>
 #include <cstring>
+#include <cerrno>
 
 #ifdef _DEBUG
 #define LOGD(message) (std::cout << "D: " << message << std::endl)
@@ -12,8 +13,8 @@
 #define LOGD(message)
 #endif
 #define LOGW(message) (std::cout << "W: " << message << std::endl)
-#define LOGE(message) (std::cout << "E: " << message << std::endl)
-#define LOGE_ERRNO(message) (std::cout << "E: " << message <<" : "<< std::strerror(errno) << std::endl)
+#define LOGE(message) (std::cerr << "E: " << message << std::endl)
+#define LOGE_ERRNO(message) (std::cerr << "E: " << message <<" : "<< std::strerror(errno) << std::endl)
 #define LOGI(message) (std::cout << "I: " << message << std::endl)
 
 #endif // _LOG_H_
