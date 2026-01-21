@@ -3,14 +3,19 @@
     "SystemdUnits": [
        	"pcie-diag.service",
        	"diag-router.service",
-        "qdu-mplane-appd.service",
-	"qnet_config_managerd.service",
+        "qnet_config_managerd.service",
         "ecprid.service",
-	"synctimingdriver.service",
+        "synctimingdriver.service",
         "splane_time_sync.service",
         "si5518_image_dload_util.service",
         "gnss_init_util.service",
-	"transceiver_fault_management.service"
+        "transceiver_fault_management.service"
     ],
-    "IgnoreMissingServices": 1
+    "IgnoreMissingServices": 1,
+    "SystemdUnitsRU": [
+        "qru-mplane-app.service"
+    ],
+    "SystemdUnitsDU": [
+        "qdu-mplane-appd.service"
+    ]
 }
