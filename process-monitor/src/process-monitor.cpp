@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <time.h>
 #include <cstdint>
+#include <string>
 
 uint64_t getDeviceTime() {
     struct timespec ts;
@@ -32,6 +33,33 @@ uint64_t getDeviceTime() {
 }
 
 
+std::string getTargetType() {
+    const std::string socFile = "/sys/devices/soc0/machine";
+    std::string socMachine;
+    std::ifstream machineFile(socFile);
+    if (machineFile.is_open()) {
+        std::getline(machineFile, socMachine);
+        machineFile.close();
+
+        if (socMachine.empty()) {
+            LOGE("Machine file is empty: " << socFile);
+            return "none";
+        }
+    } else {
+        LOGE("Failed to open file: " << socFile );
+        return "none";
+    }
+
+    if (socMachine.find("CINDERRU") != std::string::npos) {
+        return "CINDERRU";
+    } else if (socMachine.find("CINDERDU") != std::string::npos) {
+        return "CINDERDU";
+    }
+
+    LOGE("Unknown target type in machine file: " << socMachine);
+    return "none";
+}
+
 bool readConfFile(const std::string& confFilePath, JsonConf& confVar) {
     try {
         std::ifstream confFile(confFilePath);
@@ -44,6 +72,16 @@ bool readConfFile(const std::string& confFilePath, JsonConf& confVar) {
         confFile >> conf;
         confFile.close();
 
+        // Get the current target type
+        std::string targetType = getTargetType();
+        // Exit if target type is not recognized
+        if (targetType == "none") {
+            LOGE("Unable to get target type");
+            return false;
+        }
+        LOGI("Configuring services for : " << targetType);
+
+        // Read common configuration
         if (conf.isMember("Timeout") && conf["Timeout"].isMember("Value")) {
             confVar.Timeout = conf["Timeout"]["Value"].asInt();
         } else {
@@ -52,10 +90,31 @@ bool readConfFile(const std::string& confFilePath, JsonConf& confVar) {
         }
 
         confVar.IgnoreMissingServices = conf.get("IgnoreMissingServices", false).asBool();
+        confVar.SystemdUnits.clear();
 
-        for (const auto& service : conf["SystemdUnits"]) {
-            confVar.SystemdUnits.push_back(service.asString());
-            LOGD("Configured service: " << service.asString());
+        // Add common SystemdUnits
+        if (conf.isMember("SystemdUnits")) {
+            for (const auto& service : conf["SystemdUnits"]) {
+                confVar.SystemdUnits.push_back(service.asString());
+                LOGD("Configured service: " << service.asString());
+            }
+        }
+
+        // Add target-specific SystemdUnits based on the target type
+        if (targetType == "CINDERRU" && conf.isMember("SystemdUnitsRU")) {
+            for (const auto& service : conf["SystemdUnitsRU"]) {
+                confVar.SystemdUnits.push_back(service.asString());
+                LOGD("RU-specific configured service: " << service.asString());
+            }
+        } else if (targetType == "CINDERDU" && conf.isMember("SystemdUnitsDU")) {
+            for (const auto& service : conf["SystemdUnitsDU"]) {
+                confVar.SystemdUnits.push_back(service.asString());
+                LOGD("DU-specific configured service: " << service.asString());
+            }
+        }
+
+        if (confVar.SystemdUnits.empty()) {
+            LOGW("No services configured to monitor for target: " << targetType);
         }
 
         return true;
@@ -136,9 +195,16 @@ int reportFaults(const std::vector<ServiceStatus>& statusList) {
         if (entry.status != "active") {
             std::string faultSource = "module:platform,component:" + entry.name;
             std::string payload = entry.name + " service is not active!";
-             snprintf(report_data.fault_source,sizeof report_data.fault_source,"%s",faultSource.c_str());
-             snprintf(report_data.payload,sizeof report_data.payload,"%s",payload.c_str());
-             FaultManager_report_fault(&report_data);
+
+            if (faultSource.length() >= sizeof(report_data.fault_source))
+                LOGW("Fault source truncated for service: " << entry.name);
+
+            if (payload.length() >= sizeof(report_data.payload))
+                LOGW("Payload truncated for service: " << entry.name);
+
+            snprintf(report_data.fault_source, sizeof(report_data.fault_source), "%s", faultSource.c_str());
+            snprintf(report_data.payload, sizeof(report_data.payload), "%s", payload.c_str());
+            FaultManager_report_fault(&report_data);
         } else {
             LOGI("Service is active: " << entry.name);
         }
