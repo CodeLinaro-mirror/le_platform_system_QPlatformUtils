@@ -4,7 +4,7 @@
 [Unit]
 Description=process monitor service
 SourcePath=/usr/sbin/processmonitor
-After=default.target faultmgr.service
+After=default.target faultmgr.service firmware.mount
 Requires=faultmgr.service
 
 

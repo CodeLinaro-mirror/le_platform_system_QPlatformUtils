@@ -1,0 +1,18 @@
+{
+    "Timeout": {"Value": 60, "Unit": "s"},
+    "SystemdUnits": [
+       	"pcie-diag.service",
+       	"diag-router.service",
+        "qnet_config_managerd.service",
+        "ecprid.service",
+        "splane_ntn_time_sync.service",
+        "transceiver_fault_management.service"
+    ],
+    "IgnoreMissingServices": 1,
+    "SystemdUnitsRU": [
+        "qru-mplane-app.service"
+    ],
+    "SystemdUnitsDU": [
+        "qdu-mplane-appd.service"
+    ]
+}
