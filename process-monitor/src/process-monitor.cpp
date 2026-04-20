@@ -9,13 +9,38 @@
 #include <unistd.h>
 #include <json/json.h>
 #include <iostream>
-#define FM_CONF_FILE "/etc/process_monitor-cinder.json"
-#define LOCAL_FS_TARGET "local-fs.target"
-#define WAIT_TIME 20
+#include <ctime>
+#include <sstream>
+#include <iomanip>
 #include <unordered_map>
 #include <time.h>
 #include <cstdint>
 #include <string>
+
+#define FM_CONF_FILE     "/etc/process_monitor-cinder.json"
+#define FM_NTN_CONF_FILE "/etc/process_monitor_ntn-cinder.json"
+#define NTN_DETECT_FILE  "/firmware/image/build_conf/build_conf.txt"
+#define BUILD_TYPE       "NTN"
+#define WAIT_TIME        20
+
+bool isNtnDevice() {
+    std::ifstream ntnFile(NTN_DETECT_FILE);
+    if (!ntnFile.is_open()) {
+        LOGI("NTN detect file not found: " << NTN_DETECT_FILE << ". Using default config.");
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(ntnFile, line)) {
+        if (line.find(BUILD_TYPE) != std::string::npos) {
+            LOGI("NTN keyword found in " << NTN_DETECT_FILE << ". Using NTN config.");
+            return true;
+        }
+    }
+
+    LOGI("NTN keyword not found in " << NTN_DETECT_FILE << ". Using default config.");
+    return false;
+}
 
 uint64_t getDeviceTime() {
     struct timespec ts;
@@ -214,8 +239,11 @@ int reportFaults(const std::vector<ServiceStatus>& statusList) {
 }
 
 int main() {
+    const std::string confFilePath = isNtnDevice() ? FM_NTN_CONF_FILE : FM_CONF_FILE;
+    LOGI("Using config file: " << confFilePath);
+
     JsonConf confVar;
-    if (!readConfFile(FM_CONF_FILE, confVar)) {
+    if (!readConfFile(confFilePath, confVar)) {
         LOGE("Process Monitor: Configuration file read failed. Exiting...\n");
         return 1;
     }

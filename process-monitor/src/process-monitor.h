@@ -19,6 +19,7 @@ struct ServiceStatus {
     std::string status;
 };
 
+bool isNtnDevice();
 bool readConfFile(const std::string& confFilePath, JsonConf& confVar);
 bool monitorServices(SystemMngrInit::SystemMngrInit& manager, JsonConf& confVar, std::vector<ServiceStatus>& statusList);
 int reportFaults(const std::vector<ServiceStatus>& statusList);
