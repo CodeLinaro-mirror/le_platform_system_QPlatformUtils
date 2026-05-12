@@ -11,12 +11,12 @@
 #include <cerrno>
 
 #ifdef _DEBUG
-#define LOGD(message) (std::cout << "[CC-log-collector]D: " << message << std::endl)
+#define LOGD(message) (std::cout << "[log-collector]D: " << message << std::endl)
 #else
 #define LOGD(message)
 #endif
 
-#define LOGE(message) (std::cout << "[CC-log-collector]E: "<< __func__ << "" << message <<" : "<< std::strerror(errno) << std::endl)
-#define LOGI(message) (std::cout << "[CC-log-collector]I: " << message << std::endl)
+#define LOGE(message) (std::cout << "[log-collector]E: "<< __func__ << "" << message <<" : "<< std::strerror(errno) << std::endl)
+#define LOGI(message) (std::cout << "[log-collector]I: " << message << std::endl)
 
 #endif // _LOG_H_
