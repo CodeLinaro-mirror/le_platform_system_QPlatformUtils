@@ -40,7 +40,7 @@
 			}
 		},
 		"transfer": {
-			"remote_path": "/local/mnt/workspace/tarang/logs/"
+			"remote_path": "/local/mnt/workspace/logs/"
 		}
 	}
 }
