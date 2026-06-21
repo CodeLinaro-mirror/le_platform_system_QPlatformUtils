@@ -1,0 +1,46 @@
+{
+	"server": {
+		"address": "192.168.224.177",
+		"port": 22
+	},
+
+	"authentication": {
+		"by_password": false,
+		"credentials": {
+			"user": "root",
+			"password": ""
+		},
+
+		"ssh_keys": {
+			"public": "/root/.ssh/id_ed25519.pub",
+			"private": "/root/.ssh/id_ed25519"
+		}
+	},
+	"log_transfer": {
+		"enabled": true,
+		"schedule_transfer": {
+			"interval_min": 60
+		},
+		"sources": {
+			"dmesg": true,
+			"logread": true,
+			"cnss_diag": {
+				"enabled": true,
+				"duration_sec": 60
+			},
+			"ipc_logs": true,
+			"ipa_logging": {
+				"enabled": true,
+				"options": {
+					"tcpdump": true,
+					"ip_diag": true,
+					"ipa_rules": true,
+					"firmware": true
+				}
+			}
+		},
+		"transfer": {
+			"remote_path": "/local/mnt/workspace/logs/"
+		}
+	}
+}
