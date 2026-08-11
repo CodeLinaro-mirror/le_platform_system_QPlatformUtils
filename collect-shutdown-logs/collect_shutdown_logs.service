@@ -10,6 +10,8 @@ Before=halt.target poweroff.target reboot.target umount.target
 
 [Service]
 Type=oneshot
+# Bound collection: a dead nbd link would otherwise EIO-thrash for minutes.
+TimeoutStartSec=30s
 ExecStartPre=/bin/sh -c 'echo "Starting logs collection now ..."'
 ExecStartPre=/bin/sh -c '[ -d /data/mplane/o-ran-filesystem/o-ran/log/ ] &&  \
 /bin/chmod -R 775 /data/mplane/o-ran-filesystem/o-ran/log/ &&  \
