@@ -50,17 +50,14 @@ void sigp_handle(int sig) {
 int logMsgSend(struct message msg, int msgLen) {
 	struct stat qfile;
 	int fd, ret, ipq_retry_count=0;
-	int len_cur = 0, len_last = 0;
 
 	int len = strlen(msg.file_name_buff);
-	msg.file_name_buff[len-1] = '\0';
-
-	len_cur = strlen(msg.file_name_buff);
-	len_last = strlen(last_msg.file_name_buff);
+	if (len > 0 && msg.file_name_buff[len-1] == ' ')
+		msg.file_name_buff[len-1] = '\0';
 
 	printf("Debug mode enable\n");
 	printf("sending data to ipq\n");
-	if((status == 1) && strcmp(&last_msg.file_name_buff, &msg.file_name_buff)== 0){
+	if((status == 1) && strcmp(last_msg.file_name_buff, msg.file_name_buff)== 0){
 		printf("File already notified : Duplicate event\n");
 		return 0;
 	}
@@ -102,7 +99,7 @@ RECONNECT_IPQ:
 
 	status = 1;
 	memset(&last_msg, 0, sizeof(last_msg));
-	strlcpy(&last_msg.file_name_buff, &msg.file_name_buff, strlen(msg.file_name_buff)+1);
+	strlcpy(last_msg.file_name_buff, msg.file_name_buff, sizeof(last_msg.file_name_buff));
 	last_msg.type = msg.type;
 
 		fd = open(msg.file_name_buff, O_RDONLY);
@@ -169,10 +166,11 @@ int read_rawdump(int server_fd){
 int notify_full_crash(const char *dir_sdcard) {
 	struct message dir_buff;
 	struct dirent *entry;
+	int ret = 0;
 
 	int emmc_flag = system("cat /sys/kernel/dload/emmc_dload");
 	if(emmc_flag == 1) {
-		read_rawdump(server_fd);
+		ret = read_rawdump(server_fd);
 	} else {
 		DIR *dir = opendir(dir_sdcard);
 
@@ -191,10 +189,12 @@ int notify_full_crash(const char *dir_sdcard) {
 				memset(&dir_buff, 0, sizeof(dir_buff));
 				snprintf(dir_buff.file_name_buff, sizeof(dir_buff.file_name_buff), "%s%s",dir_sdcard, entry->d_name);
 				dir_buff.type = 3;
-				int ret = logMsgSend(dir_buff, sizeof(dir_buff));
+				ret = logMsgSend(dir_buff, sizeof(dir_buff));
 			}
 		}
+		closedir(dir);
 	}
+	return ret;
 }
 
 // to fetch directory log type
@@ -218,7 +218,7 @@ const char* getDir(int fwd){
 const char* getipq_serversocket(void) {
         struct ifaddrs *if_list;
         char ipq_serip[50] ;
-        int family, family_size = sizeof(struct sockaddr_in);
+        int family = -1, family_size = sizeof(struct sockaddr_in);
 
 	memset(ipq_serip, 0, SBUFF_LEN);
 	if (getifaddrs(&if_list) == -1)
@@ -230,12 +230,13 @@ const char* getipq_serversocket(void) {
 
         while(address != NULL)
         {
-                if(address->ifa_addr != NULL)
+                if(address->ifa_addr != NULL) {
 			family = address->ifa_addr->sa_family;
-                if (family == AF_INET && strcmp(address->ifa_name, MHISW_INTFC) == 0)
-                {
-                        getnameinfo(address->ifa_addr,family_size, ipq_serip, sizeof(ipq_serip), 0, 0, NI_NUMERICHOST);
-                        break;
+			if (family == AF_INET && strcmp(address->ifa_name, MHISW_INTFC) == 0)
+			{
+				getnameinfo(address->ifa_addr,family_size, ipq_serip, sizeof(ipq_serip), 0, 0, NI_NUMERICHOST);
+				break;
+			}
                 }
                 address = address->ifa_next;
         }
@@ -249,12 +250,18 @@ const char* getipq_serversocket(void) {
 /* Pass first argument as server address to connect with crash-collect */
 int main(int argc, char *argv[])
 {
-	int i, fd, wd,len;
+	int i, wd, len;
+	int fd = -1;
+	int fwd1 = -1;
+	int ret = 0;
 	struct stat qfile;
 	struct inotify_event *event;
 	char buff[CBUFF_LEN] __attribute__ ((aligned(__alignof__(struct inotify_event))));
 	struct message sdx_msg;
 	int ipq_connect_count = 0;
+	char *ipq_server_ip = NULL;
+
+	server_fd = -1;
 
 	/* Handling SIGPIPE single received from send() call */
 	signal(SIGPIPE, sigp_handle);
@@ -262,10 +269,16 @@ int main(int argc, char *argv[])
 	pfd = fopen(LOG_TIMESTAMP, "a+");
 	if (pfd == NULL){
 		perror("fopen");
-		return -1;
+		ret = -1;
+		goto cleanup;
 	}
 	/* connecting to ipq server ip */
-	char* ipq_server_ip = (char *)malloc(24);
+	ipq_server_ip = (char *)malloc(24);
+	if (ipq_server_ip == NULL) {
+		perror("malloc");
+		ret = -1;
+		goto cleanup;
+	}
 	if(argc > 1) {
 		strlcpy(ipq_server_ip, argv[1], IPLEN);
 	} else {
@@ -282,7 +295,8 @@ int main(int argc, char *argv[])
 	server_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if(server_fd == -1) {
 		perror("socket :");
-		exit(EXIT_FAILURE);
+		ret = -1;
+		goto cleanup;
 	}
 	ipq_server_addr.sin_family = AF_INET;
 	ipq_server_addr.sin_port = htons(ipq_server_port);
@@ -290,7 +304,7 @@ int main(int argc, char *argv[])
 
 	printf("connecting to server\n");
 	ipq_connect_count = 0;
-	int ret = connect(server_fd, (struct sockaddr*)&ipq_server_addr, sizeof(ipq_server_addr));
+	ret = connect(server_fd, (struct sockaddr*)&ipq_server_addr, sizeof(ipq_server_addr));
 	while(ret == -1) {
                 usleep(CONNECT_SLEEP_TIMER);
                 printf("connecting to server...%d\n", ipq_connect_count);
@@ -298,7 +312,8 @@ int main(int argc, char *argv[])
                 ipq_connect_count++;
 		if(ipq_connect_count >= RECONNECT_RETRY_COUNT){
 			perror("connect:");
-			exit(EXIT_FAILURE);
+			ret = -1;
+			goto cleanup;
 		}
         }
 	printf("connected to server\n");
@@ -306,17 +321,19 @@ int main(int argc, char *argv[])
 	fd = inotify_init();
 	if (fd == -1) {
 		perror("inotify_init :");
-		exit(EXIT_FAILURE);
+		ret = -1;
+		goto cleanup;
 	}
 
 	// check if data/crash bin files present after full crash(emmc/sd card)
 	// if present, send to IPQ
 	notify_full_crash(PATH_FULL_DUMP_SD);
 
-	int fwd1 = inotify_add_watch(fd, PATH_SSR_DUMP, IN_CLOSE_WRITE);
+	fwd1 = inotify_add_watch(fd, PATH_SSR_DUMP, IN_CLOSE_WRITE);
 	if (fwd1 == -1) {
 		perror("inotify_add_watch fwd1 :");
-		exit(EXIT_FAILURE);
+		ret = -1;
+		goto cleanup;
 	}
 #ifdef DEBUG
 	printf("file %s, fd : %d\n",PATH_SSR_DUMP, fwd1);
@@ -332,7 +349,8 @@ int main(int argc, char *argv[])
 #endif
 		if (len == -1) {
 			perror("read");
-			return -1;
+			ret = -1;
+			goto cleanup;
 		}
 		i = 0;
 		while (i < len) {
@@ -346,6 +364,10 @@ int main(int argc, char *argv[])
 				continue ;
 			}
 			const char *dir_name = getDir(ssr_event->wd);
+			if (dir_name == NULL) {
+				i += CRASH_EVENT_SIZE + ssr_event->len;
+				continue;
+			}
 			int logFileType = qLogfileType(ssr_event->wd);
 #ifdef DEBUG
 			printf("type %d File : %s%s ",logFileType, dir_name, ssr_event->name);
@@ -360,7 +382,17 @@ int main(int argc, char *argv[])
 		}
 	}
 	inotify_rm_watch(fd, fwd1);
-	close(fd);
+	ret = 0;
+
+cleanup:
+	if (fd != -1)
+		close(fd);
+	if (server_fd != -1)
+		close(server_fd);
 	free(ipq_server_ip);
-	return 0;
+	if (pfd) {
+		fclose(pfd);
+		pfd = NULL;
+	}
+	return ret;
 }
