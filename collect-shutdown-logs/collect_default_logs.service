@@ -11,7 +11,13 @@ After=transceiver_fault_management.service collect_shutdown_logs.service
 
 [Service]
 Type=oneshot
+# Bound collection: a dead nbd link would otherwise EIO-thrash for minutes.
+TimeoutStartSec=30s
 ExecStartPre=/bin/sh -c 'echo "Collecting default shutdown logs now.."'
+ExecStartPre=/bin/sh -c '[ -d /data/mplane/o-ran-filesystem/o-ran/log/ ] &&  \
+/bin/chmod -R 775 /data/mplane/o-ran-filesystem/o-ran/log/ &&  \
+/bin/chown -R radio:root /data/mplane/o-ran-filesystem/o-ran/log/ ||  \
+echo "Path doesnt exist, skipping chmod/chown" '
 ExecStart=/usr/sbin/collect-logs
 RemainAfterExit=yes
 

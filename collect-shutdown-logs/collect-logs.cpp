@@ -30,7 +30,6 @@ namespace fs = std::filesystem;
 #define LOGD(message) (std::cout << "[collect-logs] D: " << message << std::endl)
 #define LOGE(message) (std::cout << "[collect-logs] E: " << __func__ << "  " << message <<"  :  "<< std::strerror(errno) << std::endl)
 
-#define CONF_FILE ("/etc/shutdown-logs.conf")
 #define DEST_DIR ("/data/mplane/o-ran-filesystem/o-ran/log/")
 /*#define DEST_DIR ("/data/")*/
 #define BACKUP_DEST_DIR ("/data/shutdown-logs/")
@@ -70,130 +69,118 @@ const char* zlibErrorCodeStr(int ret_code)
 
 int8_t saveCompressedLogs(const string &src, const string &dst)
  {
-     int ret, flush;
-     unsigned have;
-     int sizeToWrite;
-     z_stream strm;
-     unsigned char in[ZLIB_CHUNK_SZ];
-     unsigned char out[ZLIB_CHUNK_SZ];
-     FILE *source = NULL;
-     FILE *dest = NULL;
+    int ret, flush;
+    unsigned have;
+    size_t sizeToWrite;
+    z_stream strm;
+    unsigned char in[ZLIB_CHUNK_SZ];
+    unsigned char out[ZLIB_CHUNK_SZ];
+    FILE *source = NULL;
+    FILE *dest = NULL;
 
-     // Open source file for reading as binary stream
-     source = fopen(src.c_str(), "rb");
-     if(NULL == source)
-     {
-         LOGE("failed to open source file " << src);
-         return -1;
-     }
+    // Open source file for reading as binary stream
+    source = fopen(src.c_str(), "rb");
+    if(NULL == source) {
+        LOGE("failed to open source file " << src);
+        return -1;
+    }
 
-     // Open destination file where the compressed
-     // stream will be written
-     dest = fopen(dst.c_str(), "wb");
-     if(NULL == dest)
-     {
-         LOGE("failed to open destination file: " << dst);
-         fclose(source);
-         return -1;
-     }
+    // Open destination file where the compressed
+    // stream will be written
+    dest = fopen(dst.c_str(), "wb");
+    if(NULL == dest) {
+        LOGE("failed to open destination file: " << dst);
+        fclose(source);
+        return -1;
+    }
 
-     // zlib stream buffers
-     strm.zalloc = Z_NULL;
-     strm.zfree = Z_NULL;
-     strm.opaque = Z_NULL;
+    // zlib stream buffers
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
 
-     // deflateInit2 for .gz file header support
-     // must set bits 15|16 for proper .gz header
-     ret = deflateInit2(&strm, GZIP_COMPRESSION_LVL,
-         Z_DEFLATED,15|16, 8, Z_DEFAULT_STRATEGY);
-     if( ret != Z_OK)
-     {
-         LOGE("compression failed : " << zlibErrorCodeStr(ret));
-         (void)deflateEnd(&strm);
-         fclose(source);
-         fclose(dest);
-         return -1;
-     }
+    // deflateInit2 for .gz file header support
+    // must set bits 15|16 for proper .gz header
+    ret = deflateInit2(&strm, GZIP_COMPRESSION_LVL,
+        Z_DEFLATED,15|16, 8, Z_DEFAULT_STRATEGY);
+    if( ret != Z_OK) {
+        LOGE("compression failed : " << zlibErrorCodeStr(ret));
+        (void)deflateEnd(&strm);
+        fclose(source);
+        fclose(dest);
+        return -1;
+    }
 
-     // read complete source file
-     do
-     {
-         strm.avail_in = fread(in, 1, ZLIB_CHUNK_SZ, source);
-         if (ferror(source))
-         {
-             LOGE("source file error " << std::strerror(errno));
-             (void)deflateEnd(&strm);
-             fclose(source);
-             fclose(dest);
-             return -1;
-         }
-         flush = feof(source) ? Z_FINISH : Z_NO_FLUSH;
-         strm.next_in = in;
+    // read complete source file
+    do
+    {
+        strm.avail_in = fread(in, 1, ZLIB_CHUNK_SZ, source);
+        if (ferror(source))
+        {
+            LOGE("source file error " << std::strerror(errno));
+            (void)deflateEnd(&strm);
+            fclose(source);
+            fclose(dest);
+            return -1;
+        }
+        flush = feof(source) ? Z_FINISH : Z_NO_FLUSH;
+        strm.next_in = in;
 
-         // continue to compress until output buffer is full.
-         // if source stream is all read in then finish
-         do
-         {
-             strm.avail_out = ZLIB_CHUNK_SZ;
+        // continue to compress until output buffer is full.
+        // if source stream is all read in then finish
+        do
+        {
+            strm.avail_out = ZLIB_CHUNK_SZ;
 
-             strm.next_out = out;
-             if( (ret = deflate(&strm, flush)) == Z_STREAM_ERROR)
-             {
-                 LOGE("deflate error " << zlibErrorCodeStr(ret));
-                 (void)deflateEnd(&strm);
-                 fclose(source);
-                 fclose(dest);
-                 return -1;
-             }
-             have = ZLIB_CHUNK_SZ - strm.avail_out;
+            strm.next_out = out;
+            if( (ret = deflate(&strm, flush)) == Z_STREAM_ERROR) {
+                LOGE("deflate error " << zlibErrorCodeStr(ret));
+                (void)deflateEnd(&strm);
+                fclose(source);
+                fclose(dest);
+                return -1;
+            }
+            have = ZLIB_CHUNK_SZ - strm.avail_out;
 
-             unsigned char* toWrite;
+            unsigned char* toWrite;
 
-             toWrite = out;
-             sizeToWrite = have;
+            toWrite = out;
+            sizeToWrite = have;
 
-             if (
-                 sizeToWrite < 0 ||
-                 fwrite(
-                 toWrite,
-                 1,
-                 (size_t)((unsigned)sizeToWrite),
-                 dest) != (size_t)((unsigned)sizeToWrite) ||
-                 ferror(dest))
-             {
-                 LOGE("dest file error " << std::strerror(errno));
-                 (void)deflateEnd(&strm);
-                 fclose(source);
-                 fclose(dest);
-                 return -1;
-             }
-         } while (strm.avail_out == 0);
-         if(strm.avail_in != 0)
-         {
-             LOGE("zlib did not consume all of source");
-             (void)deflateEnd(&strm);
-             fclose(source);
-             fclose(dest);
-             return -1;
-         }
-         // done when when feof on source is true
-     } while (flush != Z_FINISH);
-     if(ret != Z_STREAM_END)
-     {
-         LOGE("zlib did not complete..");
-         (void)deflateEnd(&strm);
-         fclose(source);
-         fclose(dest);
-         return -1;
-     }
+            if (fwrite(toWrite,1,sizeToWrite,dest) != sizeToWrite || ferror(dest)) {
+                LOGE("dest file error " << std::strerror(errno));
+                (void)deflateEnd(&strm);
+                fclose(source);
+                fclose(dest);
+                return -1;
+            }
+        } while (strm.avail_out == 0);
 
-     // Cleanup and return success
-     (void)deflateEnd(&strm); // Free ZLIB memory
-     fclose(source);          // Close file handle
-     fclose(dest);            // Write any Buffer data and Close file handle
+        if(strm.avail_in != 0) {
+            LOGE("zlib did not consume all of source");
+            (void)deflateEnd(&strm);
+            fclose(source);
+            fclose(dest);
+            return -1;
+        }
+        // done when when feof on source is true
+    } while (flush != Z_FINISH);
 
-     return 0;
- }
+    if(ret != Z_STREAM_END) {
+        LOGE("zlib did not complete..");
+        (void)deflateEnd(&strm);
+        fclose(source);
+        fclose(dest);
+        return -1;
+    }
+
+    // Cleanup and return success
+    (void)deflateEnd(&strm); // Free ZLIB memory
+    fclose(source);          // Close file handle
+    fclose(dest);            // Write any Buffer data and Close file handle
+
+    return 0;
+}
 
 int SaveCompressedFolder(const string& folder_path, const string& zip_path) {
     struct archive* archive = archive_write_new();
@@ -258,61 +245,51 @@ int SaveCompressedFolder(const string& folder_path, const string& zip_path) {
 
 int8_t removeFile(const string &path)
  {
-     try
-     {
-        struct stat buffer;
-        if (lstat(path.c_str(), &buffer) != 0) {
-            return 0;
+    struct stat buffer;
+    if (lstat(path.c_str(), &buffer) != 0) {
+        return 0;
+    }
+
+    if (S_ISDIR(buffer.st_mode)) {
+
+        DIR* dir = opendir(path.c_str());
+        if (!dir) {
+            LOGE("opendir failed: " << path);
+            return -1;
         }
 
-        if (S_ISDIR(buffer.st_mode))
-        {
-            DIR* dir = opendir(path.c_str());
-            if (!dir)
-            {
-                LOGE("opendir failed: " << path);
-                return -1;
+        struct dirent* ent;
+        bool innerFailed = false;
+        while ((ent = readdir(dir)) != nullptr) {
+            const char* name = ent->d_name;
+            if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+                continue;
             }
 
-            struct dirent* ent;
-            while ((ent = readdir(dir)) != nullptr) {
-                const char* name = ent->d_name;
-                if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
-                    continue;
-                }
+            string file = path + '/' + name;
 
-                string file = path + '/' + name;
-
-                if(remove(file.c_str()) == 0)
-                {
-                    LOGD("removed compressed log file: " << file);
-                }
-                else
-                {
-                    LOGE("failed to remove file " << file);
-                }
+            if(remove(file.c_str()) == 0) {
+                LOGD("removed compressed log file: " << file);
             }
-            closedir(dir);
+            else {
+                LOGE("failed to remove file " << file);
+                innerFailed = true;  // track failure
+            }
         }
-         // Remove tmp copy of file
-         if(remove(path.c_str()) == 0)
-         {
-             LOGD("removed log file: "<< path);
-         }
-         else
-         {
-             LOGE("failed to remove file " << path);
-             return -1;
-         }
-     }
-     catch(const runtime_error& e)
-     {
-         LOGE("unable to remove file: " << e.what());
-         return -1;
-     }
- 
-     return 0;
- }
+        closedir(dir);
+        if (innerFailed) return -1;  // don't attempt rmdir if contents remain
+
+    }
+    // Remove tmp copy of file
+    if(remove(path.c_str()) == 0) {
+        LOGD("Removed : "<< path);
+    }
+    else {
+        LOGE("Failed to remove:  " << path);
+        return -1;
+    }
+    return 0;
+}
 
 int8_t executeCmdSaveLogs(const char *filename, const char *cmd) {
     FILE *fp;
@@ -390,15 +367,14 @@ int main(int argc , char* argv[])
 
     dest_dir += ts;
 
-    if(!createDir(dest_dir.c_str())) {
+    if (!createDir(dest_dir.c_str())) {
 		LOGE("Unable to create log path: "<< dest_dir << " . Logs will not be saved !! .");
 		return -1;
 	}
 
-    if (argc==2)
-    {
+    if (argc==2) {
         string conf_file = argv[1];
-        LOGD("Collecting logs as mentioned in : "<<conf_file);
+        LOGD("Collecting logs as mentioned in : " << conf_file);
         //Open shutdown-logs.conf, parse it line by line and save logs using saveCompressedLogs API
         ifstream inputFile(conf_file);
         if (!inputFile.is_open()) {
@@ -413,27 +389,49 @@ int main(int argc , char* argv[])
             skip if empty line
             */
             istringstream iss(line);
-            if(line.empty())
-                continue;
-            if(line[0]=='#')
-                continue;
-            const string inputwords[2];
-            string temp[2];
+
+            if (line.empty()) continue;
+
+            if (line[0]=='#') continue;
+
+            string inputwords[2];
             int i = 0;
-            while (iss >> temp[i] && i < 2) {
+            while (i < 2 && iss >> inputwords[i]) {
                 i++;
             }
 
-            if (i == 2) {
-                const std::string inputwords[2] = {temp[0], temp[1]};
-                if ( saveCompressedLogs(inputwords[0], dest_dir+'/'+inputwords[1]+".gz") !=0)
-                {
-                    LOGE("Compression failed for :  "<< inputwords[0]);
-                    removeFile(dest_dir+'/'+inputwords[1]+".gz");
+            struct stat srcStat;
+
+            if (stat(inputwords[0].c_str(), &srcStat) != 0) {
+                LOGD("Source path does not exist: " << inputwords[0]);
+                continue;
+            }
+
+            if ( i == 2 && S_ISREG(srcStat.st_mode)) {
+                // Source is a regular file — compress as .gz
+                const string gzDst = dest_dir + '/' + inputwords[1] + ".gz";
+                if (saveCompressedLogs(inputwords[0], gzDst) != 0) {
+                    LOGE("Compression failed for :  " << inputwords[0]);
+                    removeFile(gzDst);
+                } else {
+                    LOGD(" Saved logs "<<inputwords[0] << "  at " << gzDst);
                 }
-                else
-                {
-                    LOGD(" Saved logs "<<inputwords[0] << "  at "<<dest_dir+'/'+inputwords[1]+".gz");
+            }
+            else if (S_ISDIR(srcStat.st_mode)) {
+            // Source is a directory — compress each file inside it individually as .gz
+                for (const auto& dirEntry : fs::directory_iterator(inputwords[0])) {
+                    if (!dirEntry.is_regular_file()) {
+                            LOGD("Skipping non-regular file: " << dirEntry.path());
+                            continue;
+                    }
+                    const string fileName  = dirEntry.path().filename().string();
+                    const string gzDst     = dest_dir + '/' + fileName + ".gz";
+                    if (saveCompressedLogs(dirEntry.path().string(), gzDst) != 0) {
+                        LOGE("Compression failed for: " << dirEntry.path());
+                        removeFile(gzDst);
+                    } else {
+                        LOGD(" Saved logs " << dirEntry.path() << "  at " << gzDst);
+                    }
                 }
             } else {
                 LOGE("Incorrect input line : " << line );
@@ -441,41 +439,34 @@ int main(int argc , char* argv[])
         }
 
         inputFile.close();
-    }
-    else
-    {
+    } else {
         //Save default logs - dmesg, journalctl
-        for(int i=0;i<2;i++)
-        {
-            if ( executeCmdSaveLogs((dest_dir+'/'+commands[i]+".txt").c_str(),(commands[i]).c_str()) !=0)
-            {
+        for (int i=0 ; i<2 ; i++) {
+            const string log_file = dest_dir + '/' + commands[i] + ".txt";
+            const string dst_file = dest_dir + '/' + commands[i] + ".gz";
+            if ( executeCmdSaveLogs(log_file.c_str(),(commands[i]).c_str()) !=0) {
                 LOGE("Failed to collect logs "<< commands[i]);
-                removeFile(dest_dir+'/'+commands[i]+".txt");
-            }
-            else
-            {
-                if ( saveCompressedLogs(dest_dir+'/'+commands[i]+".txt", dest_dir+'/'+commands[i]+".gz") !=0)
-                    {
-                        LOGE("Compression failed for :  "<< dest_dir+'/'+commands[i]+".txt");
-                        removeFile(dest_dir+'/'+commands[i]+".gz");
-                    }
-                    else
-                    {
-                        LOGD(" Saved logs " << "  at "<<dest_dir+'/'+commands[i]+".gz");
-                        removeFile(dest_dir+'/'+commands[i]+".txt");
-                    }   
+                removeFile(log_file);
+            } else {
+                if ( saveCompressedLogs(log_file, dst_file) !=0) {
+                    LOGE("Compression failed for :  " << log_file);
+                    removeFile(dst_file);
+                } else {
+                    LOGD(" Saved logs " << "  at " << dst_file);
+                    removeFile(log_file);
+                }   
             }
         }
     }
 
-    if ( SaveCompressedFolder(dest_dir, dest_dir+".zip") !=0)
+    if ( SaveCompressedFolder(dest_dir, dest_dir + ".zip") !=0)
     {
-        LOGE("Compression failed for :  "<< dest_dir);
+        LOGE("Compression failed for :  " << dest_dir);
         removeFile(dest_dir+".zip");
     }
     else
     {
-        LOGD(" Saved logs " << "  at "<<dest_dir+".zip");
+        LOGD(" Saved logs " << "  at " << dest_dir + ".zip");
         removeFile(dest_dir);
     }
 	return ret;
