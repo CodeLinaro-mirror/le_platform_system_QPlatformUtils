@@ -6,7 +6,8 @@
         "qnet_config_managerd.service",
         "ecprid.service",
         "splane_ntn_time_sync.service",
-        "transceiver_fault_management.service"
+        "transceiver_fault_management.service",
+        "bist.service"
     ],
     "IgnoreMissingServices": 1,
     "SystemdUnitsRU": [
